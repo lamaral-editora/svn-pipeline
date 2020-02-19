@@ -1,0 +1,68 @@
+pipeline {
+    agent { label 'master' }
+    environment { 
+     	SVN_CREDENTIALS = credentials('e97eb477-7c2c-42f5-abf8-8cbf7486a874')
+     	SVN_SERVER="infosvn"
+    }
+    parameters {
+        validatingString(defaultValue: '', description: 'Insira o email do usuario que deve ser criado', failedValidationMessage: 'Inserir um email valido', name: 'EMAIL', regex: '[a-zA-Z0-9\\.\\@]+')
+    }
+    stages {
+        stage('Check for configuration run'){
+            when {
+                expression { params.EMAIL == "email@dry.run" || params.EMAIL == "" || params.EMAIL == null }
+            }
+            steps{
+                script{
+                    currentBuild.result = 'ABORTED'
+                    error('DRY RUN COMPLETED. JOB PARAMETERIZED.')
+                }
+            }
+        }
+        stage('Clone Repository SVN - SSHKEYS'){
+            steps{
+                    checkout([$class: 'SubversionSCM', 
+                        locations: [[credentialsId: 'e97eb477-7c2c-42f5-abf8-8cbf7486a874',
+                                    local: 'ssh_keys',
+                                    remote: "http://infosvn/svn/EquipeQA/chaves_ssh_containers/tfsservice/"]], 
+                        workspaceUpdater: [$class: 'UpdateUpdater']])
+            }
+        }
+        stage('Create SVN Login') {
+            steps{
+                script{
+                    env.LOGIN = sh(label:"Obtendo login a partir do email", returnStdout: true, script: " set +x ; echo ${params.EMAIL} | cut -d'@' -f1").trim()
+                    env.PASS = sh(label:"Gerando senha randomica", returnStdout: true, script: "set +x ; head /dev/urandom | tr -dc A-Za-z0-9 | head -c 10 ; echo ''").trim()
+                    sh ("set +x ; chmod 0600 ${WORKSPACE}/ssh_keys/id_rsa ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} sudo htpasswd -m -b /opt/svn/passwd ${env.LOGIN} ${env.PASS}")
+                    sh ("set +x ; chmod 0600 ${WORKSPACE}/ssh_keys/id_rsa ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \"echo -e '\n\n[${env.LOGIN}]\nUser=' >> /opt/www/svnadmin/data/userroleassignments.ini\"")
+                }
+			}
+        }
+    }
+    post {
+        success {
+            emailext to: "${params.EMAIL}", subject: "SVN - Criação de Login", mimeType: 'text/html', body: """
+            <img src="https://d79tnh4iwbsrj.cloudfront.net/indicadores/ImgIdentV/Cabecalho.png" />
+            <br>
+            <br>
+            Caros,
+            <br>
+            <br>
+            Segue o novo usuário conforme solicitado:
+            <br>
+            <br>
+            LOGIN: ${env.LOGIN}<br>
+            SENHA: ${env.PASS}<br>
+            <br>
+            Para alterar sua senha por favor acesse:
+            <a href="http://infosvn/admin">http://infosvn/admin</a>
+            <br>
+            <br>
+            <img src="https://d79tnh4iwbsrj.cloudfront.net/indicadores/ImgIdentV/Rodape.png" />
+            """
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

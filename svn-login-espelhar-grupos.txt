@@ -44,7 +44,7 @@ pipeline {
                     }
 					sh ("set +x ; chmod 0600 ${WORKSPACE}/ssh_keys/id_rsa ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \"sed '/[/]/q' ${SVN_PERMFILE} | head -n -1 | sed -e 's/${env.LOGINORIGEM}/${env.LOGINORIGEM},${env.LOGINDESTINO}/g' > /tmp/groups.txt \"")
                     sh ("set +x ; p=\$(echo '\$p' ) ; chmod 0600 ${WORKSPACE}/ssh_keys/id_rsa ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \"sed -n -e '/[/]/,\$p' ${SVN_PERMFILE} > /tmp/repositories.txt \"")
-                    sh ("set +x ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \"cat /tmp/groups.txt > /opt/svn/authz ; cat /tmp/repositories.txt >> /opt/svn/authz \"")
+                    sh ("set +x ; chmod 0600 ${WORKSPACE}/ssh_keys/id_rsa ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \"sudo sh -c 'cat /tmp/groups.txt > /opt/svn/authz' ; sudo sh -c 'cat /tmp/repositories.txt >> /opt/svn/authz' \"")
                 }
 			}
         }
