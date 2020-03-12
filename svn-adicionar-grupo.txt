@@ -1,0 +1,72 @@
+pipeline {
+    agent { label 'master' }
+    environment { 
+     	SVN_CREDENTIALS = credentials('e97eb477-7c2c-42f5-abf8-8cbf7486a874')
+     	SVN_SERVER="infosvn"
+     	SVN_REPOLOCATION="/opt/svn/"
+     	SVN_REPOPERMISSIONFILE="authz"
+    }
+    parameters {
+        validatingString(defaultValue: '', description: 'Escreva o nome desejado para o repositório', failedValidationMessage: 'Inserir um nome válido', name: 'REPONAME', regex: '[a-zA-Z0-9\\_\\.]+')
+        validatingString(defaultValue: '', description: 'Selecione o grupo desejado', failedValidationMessage: 'Inserir um nome válido', name: 'GROUP', regex: '[a-zA-Z0-9\\_\\.]+')
+        choice(
+            choices: ['Leitura', 'Leitura e Escrita'],
+            description: 'Indique a permissão desejada',
+            name: 'PERMISSION')
+        
+    }
+    stages {
+        stage('Check for configuration run'){
+            when {
+                expression { params.REPONAME == "dry.run" || params.REPONAME == "" }
+            }
+            steps{
+                script{
+                    currentBuild.result = 'ABORTED'
+                    error('DRY RUN COMPLETED. JOB PARAMETERIZED.')
+                }
+            }
+        }
+        stage('Clone Repository SVN - SSHKEYS'){
+            steps{
+                    checkout([$class: 'SubversionSCM', 
+                        locations: [[credentialsId: 'e97eb477-7c2c-42f5-abf8-8cbf7486a874',
+                                    local: 'ssh_keys',
+                                    remote: "http://infosvn/svn/EquipeQA/chaves_ssh_containers/tfsservice/"]], 
+                        workspaceUpdater: [$class: 'UpdateUpdater']])
+            }
+        }
+        stage('Add Group to Repository') {
+            steps{
+                script{
+                    
+                    sh ("set +x ; chmod 0600 ${WORKSPACE}/ssh_keys/id_rsa")
+                    
+                    def perm = "r"
+                    if ( params.PERMISSION == "Leitura e Escrita"){
+                        perm = "rw"
+                    }
+                    
+                    def groups_now = sh(returnStdout: true, script: "set +x ; d=\$(echo '\$d' ) ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \" sed -ne '/${params.REPONAME}:/,/^\$/ p' ${SVN_REPOLOCATION}${SVN_REPOPERMISSIONFILE} | sed -e '1d' \"")
+                    
+                    //echo groups_now
+                    //echo String.valueOf(groups_now.toLowerCase().contains(params.GROUP.toLowerCase()))
+                    
+                    if (groups_now.toLowerCase().contains(params.GROUP.toLowerCase())){
+                        def num_row_repo = sh(returnStdout: true, script: "set +x ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \" grep -n '${params.REPONAME}:\' ${SVN_REPOLOCATION}${SVN_REPOPERMISSIONFILE} | cut -d':' -f 1 \"")
+                        def num_row_group = sh(returnStdout: true, script: "set +x ; d=\$(echo '\$d' ) ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \" sed -ne '/${params.REPONAME}:/,/^\$/ p' ${SVN_REPOLOCATION}${SVN_REPOPERMISSIONFILE} | sed -e '1d' | grep -n \"${params.GROUP}\" | cut -d':' -f 1 \"")
+                        def num_row_total = num_row_repo.toInteger() + num_row_group.toInteger()
+                        sh(returnStdout: true, script: "set +x ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \" sed -i -e \"${num_row_total}s/${params.GROUP}=.*/${params.GROUP}=${perm}/\" ${SVN_REPOLOCATION}${SVN_REPOPERMISSIONFILE} \"")
+                    }else{
+                        sh ("set +x ; ssh -i ${WORKSPACE}/ssh_keys/id_rsa -o BatchMode=yes -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null tfsservice@${SVN_SERVER} \"sed -i '/^\\[${params.REPONAME}:/a@${params.GROUP}=${perm}' ${SVN_REPOLOCATION}${SVN_REPOPERMISSIONFILE}  \"")    
+                    }
+                }
+			}
+        }
+    }
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
